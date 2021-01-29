@@ -77,10 +77,16 @@ void command_parser(User *client, string command) {
     auto *req = new uv_write_t;
     string response;
     if(command.find("SETNICKNAME")==0) {
+        string nickChanged = "NICKCHANGED $";
         string nick = get_first_attribute(command);
         if(nick.length()>0) {
             response.append("Nick successfully set\n\r");
             sendResponse(client, response, req);
+            nickChanged.append(client->nickname).append("$").append(nick).append("$");
+//            informacja o zmianie nicku wysyłana do wszystkich użytkowników
+//            format wiadomości:
+//            NICKCHANGED $START_NICK$NOWY_NICK$
+            sendCommandToAll(nickChanged, req);
             client->nickname = nick;
         } else {
             response.append("Nick is to short\n\r");
@@ -105,12 +111,18 @@ void command_parser(User *client, string command) {
             }
         sendResponse(client, response, req);
 } else if(command.find("CREATECHANNEL")==0) {
+        string channelCreated = "CHANNELCREATED $";
         string channelName = get_first_attribute(command);
         if(channelName.length()>0) {
             response.append("Channel successfully created\n\r");
             sendResponse(client, response, req);
             Channel *channel = new Channel(channelName);
             channels.push_back(channel);
+            channelCreated.append(channelName).append("$");
+//            informacja o utworzeniu kanału wysłana do wszystkich
+//            format wiadomości:
+//            CHANNELCREATED $NAZWA_KANAŁU$
+            sendCommandToAll(channelCreated, req);
         } else {
             response.append("Name is to short\n\r");
             sendResponse(client, response, req);
@@ -159,6 +171,7 @@ void command_parser(User *client, string command) {
         }
         sendResponse(client, response, req);
     } else if(command.find("REMOVECHANNEL")==0) {
+        string channelRemoved = "CHANNELREMOVED $";
         response.append("Channel successfully removed\n\r");
         string channelName = get_first_attribute(command);
         if(channelName.length()==0) {
@@ -166,6 +179,11 @@ void command_parser(User *client, string command) {
         } else if(client->isOnChannel(channelName)){
             for(int i=0;i<channels.size();i++){
                 if(channels.at(i)->name==channelName){
+                    channelRemoved.append(channelName).append("$");
+//                    informacja o usunięciu kanału wysłana do wszystkich
+//                    format wiadomości
+//                    CHANNELREMOVED $NAZWA_KANAŁU$
+                    sendCommandToAll(channelRemoved, req);
                     for(int j=0;j<channels.at(i)->users.size();j++) {
                         channels.at(i)->users.at(j)->leaveChannel(channels.at(i));
                     }
@@ -249,7 +267,6 @@ void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
 //            uv_write(req, (uv_stream_t*) clients.at(i), &wrbuf, 1, echo_write);
 //        }
     }
-
     if (buf->base) {
         delete buf->base;
     }
