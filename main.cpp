@@ -39,16 +39,38 @@ string get_first_attribute(string command){
 }
 
 string get_message(string command){
-    int pos1, pos2;
+    int pos1, posMessageStart, posMessageEnd;
     pos1 = command.find("$");
     if(pos1==string::npos) {
         return "";
     }
-    pos2 = command.find("$",pos1+1);
-    if(pos2==string::npos) {
+    posMessageStart = command.find("$",pos1+1);
+    if(posMessageStart == string::npos) {
         return "";
     }
-    return command.substr(pos2+1);
+    posMessageEnd = command.find("$", posMessageStart + 1);
+    if (posMessageEnd ==string::npos) {
+        return "";
+    }
+    int messageLength = posMessageEnd - posMessageStart;
+    return command.substr(posMessageStart + 1, messageLength - 1);
+}
+
+void sendResponse(User *destination, string response, uv_write_t *req) {
+    uv_buf_t wrbuf = uv_buf_init((char *) response.c_str(), response.size());
+    uv_write(req, (uv_stream_t *) destination, &wrbuf, 1, echo_write);
+}
+
+void sendCommandToAll(string command, uv_write_t *req) {
+    for (int i = 0; i < clients.size(); i++) {
+        sendResponse(clients[i], command, req);
+    }
+}
+
+void sendCommandTo(vector<User *> destination, string command, uv_write_t *req) {
+    for (auto u : destination) {
+        sendResponse(u, command, req);
+    }
 }
 
 void command_parser(User *client, string command) {
@@ -58,12 +80,12 @@ void command_parser(User *client, string command) {
         string nick = get_first_attribute(command);
         if(nick.length()>0) {
             response.append("Nick successfully set\n\r");
+            sendResponse(client, response, req);
             client->nickname = nick;
         } else {
             response.append("Nick is to short\n\r");
+            sendResponse(client, response, req);
         }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
     } else if(command.find("LISTUSERS")==0) {
         response.append("USERS\n");
         for(int i=0;i<clients.size();i++) {
@@ -74,27 +96,25 @@ void command_parser(User *client, string command) {
             }
             response.append(")\n");
         }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+        sendResponse(client, response, req);
     } else if(command.find("LISTCHANNELS")==0) {
         response.append("CHANNELS\n");
             for(int i=0;i<channels.size();i++) {
                 response.append(channels.at(i)->name);
                 response.append("\n");
             }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+        sendResponse(client, response, req);
 } else if(command.find("CREATECHANNEL")==0) {
         string channelName = get_first_attribute(command);
         if(channelName.length()>0) {
             response.append("Channel successfully created\n\r");
+            sendResponse(client, response, req);
             Channel *channel = new Channel(channelName);
             channels.push_back(channel);
         } else {
             response.append("Name is to short\n\r");
+            sendResponse(client, response, req);
         }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
     } else if(command.find("JOINCHANNEL")==0) {
         string channelName = get_first_attribute(command);
         if(channelName.length()==0) {
@@ -112,20 +132,17 @@ void command_parser(User *client, string command) {
                     response.append("\n\r");
                     for (int j = 0; j < channels.at(i)->users.size(); j++) {
                         if(client!=channels.at(i)->users.at(j)) {
-                            uv_buf_t wrbuf = uv_buf_init((char *) response.c_str(), response.size());
-                            uv_write(req, (uv_stream_t *) channels.at(i)->users.at(j), &wrbuf, 1, echo_write);
+                            sendResponse(channels.at(i)->users.at(j), response, req);
                         }
                     }
                     response.clear();
                     response = "JOINCHANNEL\n";
                     response.append(channelName).append("\0");
-                    uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-                    uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+                    sendResponse(client, response, req);
                     return;
                 }
             }
-            uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-            uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+            sendResponse(client, response, req);
         }
     } else if(command.find("LEAVECHANNEL")==0) {
         response.append("Channel successfully left\n\r");
@@ -140,8 +157,7 @@ void command_parser(User *client, string command) {
                 }
             }
         }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+        sendResponse(client, response, req);
     } else if(command.find("REMOVECHANNEL")==0) {
         response.append("Channel successfully removed\n\r");
         string channelName = get_first_attribute(command);
@@ -158,8 +174,7 @@ void command_parser(User *client, string command) {
                 }
             }
         }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+        sendResponse(client, response, req);
     } else if(command.find("SENDTOCHANNEL")==0) {
         string channelName = get_first_attribute(command);
         string message = get_message(command);
@@ -177,8 +192,7 @@ void command_parser(User *client, string command) {
                     response.append("\n");
                     for (int j = 0; j < channels.at(i)->users.size(); j++) {
                         if(channels.at(i)->users.at(j)!=client) { //?
-                            uv_buf_t wrbuf = uv_buf_init((char *) response.c_str(), response.size());
-                            uv_write(req, (uv_stream_t *) channels.at(i)->users.at(j), &wrbuf, 1, echo_write);
+                            sendResponse(channels.at(i)->users.at(j), response, req);
                         }
                     }
                     return;
@@ -187,8 +201,7 @@ void command_parser(User *client, string command) {
         } else {
             response.append("You are not a member of this channel\n\r");
         }
-        uv_buf_t wrbuf = uv_buf_init((char *)response.c_str(), response.size());
-        uv_write(req, (uv_stream_t*) client, &wrbuf, 1, echo_write);
+        sendResponse(client, response, req);
     } else if(command.find("SENDTOUSER")==0) {
         string user = get_first_attribute(command);
         string message = get_message(command);
@@ -198,12 +211,11 @@ void command_parser(User *client, string command) {
                 response.append(": ");
                 response.append(message);
                 response.append("\n");
-                uv_buf_t wrbuf = uv_buf_init((char *) response.c_str(), response.size());
-                uv_write(req, (uv_stream_t *) clients.at(i), &wrbuf, 1, echo_write);
+                sendResponse(client, response, req);
             }
         }
     } else {
-// TODO: Send to clint list of all available commands
+// TODO: Send to client list of all available commands
     }
 }
 
