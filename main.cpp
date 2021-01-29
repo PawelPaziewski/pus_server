@@ -9,6 +9,7 @@ uv_loop_t *loop;
 sockaddr_in addr;
 vector<User *> clients;
 vector<Channel *> channels;
+uv_write_t *req;
 
 void echo_write(uv_write_t *req, int status) {
     if (status) {
@@ -54,45 +55,45 @@ string get_message(string command) {
     return command.substr(posMessageStart + 1, messageLength - 1);
 }
 
-void sendResponse(User *destination, string response, uv_write_t *req) {
+void sendResponse(User *destination, string response) {
     uv_buf_t wrbuf = uv_buf_init((char *) response.c_str(), response.size());
     uv_write(req, (uv_stream_t *) destination, &wrbuf, 1, echo_write);
 }
 
-void sendCommandToAll(string command, uv_write_t *req) {
-    for (auto & client : clients) {
-        sendResponse(client, command, req);
+void sendCommandToAll(string command) {
+    for (auto &client : clients) {
+        sendResponse(client, command);
     }
 }
 
-void sendCommandTo(vector<User *> destination, string command, uv_write_t *req) {
+void sendCommandTo(vector<User *> destination, string command) {
     for (auto u : destination) {
-        sendResponse(u, command, req);
+        sendResponse(u, command);
     }
 }
 
 void command_parser(User *client, string command) {
-    auto *req = new uv_write_t;
+    req = new uv_write_t;
     string response;
     if (command.find("SETNICKNAME") == 0) {
         string nickChanged = "NICKCHANGED $";
         string nick = get_first_attribute(command);
         if (nick.length() > 0) {
             response.append("Nick successfully set\n\r");
-            sendResponse(client, response, req);
+            sendResponse(client, response);
             nickChanged.append(client->nickname).append("$").append(nick).append("$");
 //            informacja o zmianie nicku wysyłana do wszystkich użytkowników
 //            format wiadomości:
 //            NICKCHANGED $START_NICK$NOWY_NICK$
-            sendCommandToAll(nickChanged, req);
+            sendCommandToAll(nickChanged);
             client->nickname = nick;
         } else {
             response.append("Nick is to short\n\r");
-            sendResponse(client, response, req);
+            sendResponse(client, response);
         }
     } else if (command.find("LISTUSERS") == 0) {
         response.append("USERS\n");
-        for (auto & client : clients) {
+        for (auto &client : clients) {
             response.append(client->nickname);
             response.append("( ");
             for (auto a: client->getChannels()) {
@@ -100,30 +101,30 @@ void command_parser(User *client, string command) {
             }
             response.append(")\n");
         }
-        sendResponse(client, response, req);
+        sendResponse(client, response);
     } else if (command.find("LISTCHANNELS") == 0) {
         response.append("CHANNELS\n");
-        for (auto & channel : channels) {
+        for (auto &channel : channels) {
             response.append(channel->name);
             response.append("\n");
         }
-        sendResponse(client, response, req);
+        sendResponse(client, response);
     } else if (command.find("CREATECHANNEL") == 0) {
         string channelCreated = "CHANNELCREATED $";
         string channelName = get_first_attribute(command);
         if (channelName.length() > 0) {
             response.append("Channel successfully created\n\r");
-            sendResponse(client, response, req);
+            sendResponse(client, response);
             Channel *channel = new Channel(channelName);
             channels.push_back(channel);
             channelCreated.append(channelName).append("$");
 //            informacja o utworzeniu kanału wysłana do wszystkich
 //            format wiadomości:
 //            CHANNELCREATED $NAZWA_KANAŁU$
-            sendCommandToAll(channelCreated, req);
+            sendCommandToAll(channelCreated);
         } else {
             response.append("Name is to short\n\r");
-            sendResponse(client, response, req);
+            sendResponse(client, response);
         }
     } else if (command.find("JOINCHANNEL") == 0) {
         string channelName = get_first_attribute(command);
@@ -131,7 +132,7 @@ void command_parser(User *client, string command) {
             response.append("Name is to short\n\r");
         } else {
             response.append("Channel can't be find\n\r");
-            for (auto & channel : channels) {
+            for (auto &channel : channels) {
                 if (channelName == channel->name) {
                     channel->addUser(client);
                     client->joinChannel(channel);
@@ -140,19 +141,19 @@ void command_parser(User *client, string command) {
                     response.append(" joined channel ");
                     response.append(channelName);
                     response.append("\n\r");
-                    for (auto & user : channel->users) {
+                    for (auto &user : channel->users) {
                         if (client != user) {
-                            sendResponse(user, response, req);
+                            sendResponse(user, response);
                         }
                     }
                     response.clear();
                     response = "JOINCHANNEL\n";
                     response.append(channelName).append("\0");
-                    sendResponse(client, response, req);
+                    sendResponse(client, response);
                     return;
                 }
             }
-            sendResponse(client, response, req);
+            sendResponse(client, response);
         }
     } else if (command.find("LEAVECHANNEL") == 0) {
         response.append("Channel successfully left\n\r");
@@ -160,14 +161,14 @@ void command_parser(User *client, string command) {
         if (channelName.length() == 0) {
             response.append("Name is to short\n\r");
         } else if (client->isOnChannel(channelName)) {
-            for (auto & channel : channels) {
+            for (auto &channel : channels) {
                 if (channel->name == channelName) {
                     client->leaveChannel(channel);
                     channel->removeUser(client);
                 }
             }
         }
-        sendResponse(client, response, req);
+        sendResponse(client, response);
     } else if (command.find("REMOVECHANNEL") == 0) {
         string channelRemoved = "CHANNELREMOVED $";
         response.append("Channel successfully removed\n\r");
@@ -181,8 +182,8 @@ void command_parser(User *client, string command) {
 //                    informacja o usunięciu kanału wysłana do wszystkich
 //                    format wiadomości
 //                    CHANNELREMOVED $NAZWA_KANAŁU$
-                    sendCommandToAll(channelRemoved, req);
-                    for(auto & user: channels.at(i)->users){
+                    sendCommandToAll(channelRemoved);
+                    for (auto &user: channels.at(i)->users) {
                         user->leaveChannel(channels.at(i));
                     }
                     delete channels.at(i);
@@ -190,7 +191,7 @@ void command_parser(User *client, string command) {
                 }
             }
         }
-        sendResponse(client, response, req);
+        sendResponse(client, response);
     } else if (command.find("SENDTOCHANNEL") == 0) {
         string channelName = get_first_attribute(command);
         string message = get_message(command);
@@ -198,7 +199,7 @@ void command_parser(User *client, string command) {
             response.append("Name is to short\n\r");
         } else if (client->isOnChannel(channelName)) {
             response.append("Channel can't be find\n\r");
-            for (auto & channel : channels) {
+            for (auto &channel : channels) {
                 if (channelName == channel->name) {
                     response.assign(client->nickname);
                     response.append("@");
@@ -206,9 +207,9 @@ void command_parser(User *client, string command) {
                     response.append(": ");
                     response.append(message);
                     response.append("\n");
-                    for (auto & user : channel->users) {
+                    for (auto &user : channel->users) {
                         if (user != client) { //?
-                            sendResponse(user, response, req);
+                            sendResponse(user, response);
                         }
                     }
                     return;
@@ -217,17 +218,17 @@ void command_parser(User *client, string command) {
         } else {
             response.append("You are not a member of this channel\n\r");
         }
-        sendResponse(client, response, req);
+        sendResponse(client, response);
     } else if (command.find("SENDTOUSER") == 0) {
         string user = get_first_attribute(command);
         string message = get_message(command);
-        for (auto & i : clients) {
+        for (auto &i : clients) {
             if (i->nickname == user) {
                 response.assign(client->nickname);
                 response.append(": ");
                 response.append(message);
                 response.append("\n");
-                sendResponse(client, response, req);
+                sendResponse(client, response);
             }
         }
     } else {
@@ -300,4 +301,3 @@ int main() {
     }
     return uv_run(loop, UV_RUN_DEFAULT);
 }
-
