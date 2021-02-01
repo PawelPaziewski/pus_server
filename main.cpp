@@ -147,8 +147,8 @@ void command_parser(User *client, string command) {
                         }
                     }
                     response.clear();
-                    response = "JOINCHANNEL\n";
-                    response.append(channelName).append("\0");
+                    response = "JOINCHANNEL $";
+                    response.append(channelName).append("$");
                     sendResponse(client, response);
                     return;
                 }
@@ -231,9 +231,22 @@ void command_parser(User *client, string command) {
                 sendResponse(client, response);
             }
         }
-    } else {
-// TODO: Send to client list of all available commands
+    } else if (command.find("LISTONCHANNEL") == 0){
+        string usersOnChannel = "USERSONCHANNEL $";
+        string channelName = get_first_attribute(command);
+        usersOnChannel.append(channelName).append("$");
+        for(auto &i : channels){
+            if(i->name == channelName){
+                for(auto &u : i->users){
+                    usersOnChannel.append("&").append(u->nickname);
+                    usersOnChannel.append("$");
+                    sendResponse(client, usersOnChannel);
+                }
+            }
+        }
+        response.clear();
     }
+
 }
 
 void remove_from_clients_list(uv_tcp_t *client) {
